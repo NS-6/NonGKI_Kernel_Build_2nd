@@ -1,0 +1,366 @@
+name: 'Setup Workspace & Sources'
+description: 'Prepares the runner environment, toolchains, kernel sources, and KernelSU configuration.'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 🧹 Free Disk Space
+      if: env.FREE_MORE_SPACE == 'true'
+      shell: bash
+      run: |
+        sudo rm -rf /opt/hostedtoolcache
+        df -h
+
+    - name: 🛠️ Initialize Runner Environment & Dependencies
+      shell: bash
+      run: |
+        SUDO=$(command -v sudo || true)
+
+        # Move Patches and Bin utilities to /tmp
+        if [ -d "$GITHUB_WORKSPACE/Patches" ]; then
+          mv "$GITHUB_WORKSPACE/Patches" /tmp/
+        fi
+        if [ -d "$GITHUB_WORKSPACE/Bin" ]; then
+          mv "$GITHUB_WORKSPACE/Bin" /tmp/
+          chmod +x /tmp/Bin/*.sh 2>/dev/null || true
+          echo "CURLX=/tmp/Bin/curlx.sh" >> $GITHUB_ENV
+        else
+          echo "CURLX=curl -kLSs --connect-timeout 10 --retry 5 --retry-delay 5 -o" >> $GITHUB_ENV
+        fi
+
+        # =========================================================================
+        # 1. Base Packages Installation (Ubuntu / Arch)
+        # =========================================================================
+        if [ "${{ env.SYSTEM_VERSION }}" == "newer" ] || [ "${{ env.SYSTEM_VERSION }}" == "older" ] || [ "${{ env.SYSTEM_VERSION }}" == "oldest" ]; then
+          TZ=America/Los_Angeles
+          $SUDO ln -snf "/usr/share/zoneinfo/$TZ" /etc/localtime
+          echo "$TZ" | $SUDO tee /etc/timezone >/dev/null
+
+          echo "::group::[+] Installing base build packages..."
+          $SUDO apt-get update
+          $SUDO apt-get install -y \
+            git ccache automake flex lzop bison gperf build-essential zip curl \
+            zlib1g-dev g++-multilib libxml2-utils bzip2 libbz2-dev libbz2-1.0 \
+            libghc-bzlib-dev squashfs-tools pngcrush schedtool dpkg-dev make \
+            optipng maven libssl-dev pwgen libswitch-perl policycoreutils minicom \
+            libxml-sax-base-perl libxml-simple-perl bc libc6-dev-i386 libx11-dev \
+            lib32z-dev libgl1-mesa-dev xsltproc unzip device-tree-compiler cpio \
+            liblz4-tool lz4 libz3-4 wget p7zip p7zip-full
+
+          if [ "${{ env.SYSTEM_VERSION }}" == "newer" ]; then
+            $SUDO apt-get install -y zstd binutils gcc g++
+            curl -kLSs --connect-timeout 10 --retry 5 -o libtinfo5.deb https://security.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2_amd64.deb
+            $SUDO apt-get install -y ./libtinfo5.deb
+            rm -f libtinfo5.deb
+          else
+            $SUDO apt-get install -y lib32ncurses5-dev libtinfo5
+          fi
+          echo "::endgroup::"
+
+          # Coccinelle (Semantic patch tool)
+          echo "::group::[+] Building Coccinelle..."
+          $SUDO apt-get install -y pkg-config ocaml-nox ocaml-findlib autoconf libpcre3-dev python3-dev menhir libparmap-ocaml-dev libpcre-ocaml-dev
+          curl -kLSs --connect-timeout 10 --retry 5 -o coccinelle.tar.gz "https://coccinelle.gitlabpages.inria.fr/website/distrib/coccinelle-1.3.tar.gz"
+          tar zxf coccinelle.tar.gz
+          cd coccinelle-1.3
+          ./autogen
+          ./configure
+          make
+          $SUDO make install
+          cd "$GITHUB_WORKSPACE"
+          rm -rf coccinelle.tar.gz coccinelle-1.3
+          echo "::endgroup::"
+
+          # Python setup
+          if [ "${{ env.PYTHON_VERSION }}" == "2" ]; then
+            if [ "${{ env.SYSTEM_VERSION }}" == "newer" ]; then
+              wget https://www.python.org/ftp/python/2.7.18/Python-2.7.18.tgz
+              tar -xf Python-2.7.18.tgz && cd Python-2.7.18
+              ./configure && make -j$(nproc) && $SUDO make install
+              curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py
+              $SUDO python2.7 get-pip.py
+              $SUDO update-alternatives --install /usr/bin/python python /usr/local/bin/python2.7 1
+              cd "$GITHUB_WORKSPACE"
+              rm -rf Python-2.7.18 Python-2.7.18.tgz get-pip.py
+            else
+              $SUDO apt-get install -y python2
+              $SUDO rm -rf /usr/bin/python
+              $SUDO ln -s /usr/bin/python2.7 /usr/bin/python
+            fi
+          else
+            $SUDO apt-get install -y python3
+            $SUDO rm -rf /usr/bin/python
+            $SUDO ln -s /usr/bin/python3 /usr/bin/python
+          fi
+
+        elif [ "${{ env.SYSTEM_VERSION }}" == "arch" ]; then
+          echo "::group::[+] Installing Arch Linux packages..."
+          pacman-key --init
+          pacman -Syyu --noconfirm
+          pacman -S git base-devel systemd wget rustup curl patch ccache automake flex lzop bison gperf zip curl bzip2 squashfs-tools pngcrush schedtool make optipng maven pwgen minicom bc unzip 7zip zstd binutils gcc wget which libxml2-legacy dtc cpio lz4 z3 --noconfirm
+          echo -e "\n[archlinuxcn]\nServer = https://repo.archlinuxcn.org/\$arch" >> /etc/pacman.conf
+          pacman -Syy && pacman -S archlinuxcn-keyring coccinelle --noconfirm
+          if [ "${{ env.PYTHON_VERSION }}" == "2" ]; then
+            pacman -S python2 --noconfirm
+            ln -s /usr/bin/python2.7 /usr/bin/python
+          else
+            pacman -S python3 --noconfirm
+            ln -s /usr/bin/python3 /usr/bin/python
+          fi
+          rustup default stable
+          echo "::endgroup::"
+        fi
+
+        # =========================================================================
+        # 2. MKDTBO Tooling (When NEED_DTBO is enabled)
+        # =========================================================================
+        if [ "${{ env.NEED_DTBO }}" == "true" ]; then
+          echo "::group::[+] Installing MKDTBO tooling..."
+          mkdir -p "$GITHUB_WORKSPACE/mkdtbo"
+          cd "$GITHUB_WORKSPACE/mkdtbo"
+          curl -kLSs --connect-timeout 10 --retry 5 -o src.tar.gz https://android.googlesource.com/platform/system/libufdt/+archive/refs/heads/main/utils/src.tar.gz
+          tar zxvf src.tar.gz
+          rm -f src.tar.gz
+          chmod +x "$GITHUB_WORKSPACE/mkdtbo/mkdtboimg.py"
+          $SUDO ln -sfn "$GITHUB_WORKSPACE/mkdtbo/mkdtboimg.py" /usr/bin/mkdtboimg
+          $SUDO ln -sfn "$GITHUB_WORKSPACE/mkdtbo/mkdtboimg.py" /usr/bin/mkdtimg
+          cd "$GITHUB_WORKSPACE"
+          echo "::endgroup::"
+        fi
+
+    - name: 🧬 Acquire Toolchains (Clang & GCC)
+      shell: bash
+      run: |
+        cd "$GITHUB_WORKSPACE"
+
+        fetch_and_extract() {
+          local url="$1"
+          local branch="$2"
+          local target_dir="$3"
+          local archive_name="archive_${target_dir}"
+
+          mkdir -p "$target_dir"
+          if [[ "$url" == *".git" ]]; then
+            echo "[+] Cloning Git repository: $url (branch: $branch)"
+            git clone "$url" -b "$branch" "$target_dir" --depth=1
+          elif [[ "$url" == *".tar.gz" ]]; then
+            echo "[+] Downloading tar.gz: $url"
+            ${{ env.CURLX }} "$url" "${archive_name}.tar.gz"
+            tar -C "$target_dir" -zxf "${archive_name}.tar.gz"
+            rm -f "${archive_name}.tar.gz"
+          elif [[ "$url" == *".tar.xz" ]] || [[ "$url" == *".xz" ]]; then
+            echo "[+] Downloading tar.xz: $url"
+            ${{ env.CURLX }} "$url" "${archive_name}.tar.xz"
+            tar -C "$target_dir" -xf "${archive_name}.tar.xz" --strip-components 1
+            rm -f "${archive_name}.tar.xz"
+          elif [[ "$url" == *".zip" ]]; then
+            echo "[+] Downloading zip: $url"
+            ${{ env.CURLX }} "$url" "${archive_name}.zip"
+            unzip -q "${archive_name}.zip" -d "$target_dir"
+            rm -f "${archive_name}.zip"
+          else
+            return 1
+          fi
+        }
+
+        # 1. System GNU GCC
+        if [ "${{ env.GCC_GNU }}" == "true" ] || [ "${{ env.GNU_GCC }}" == "true" ]; then
+          echo "::group::[+] Installing GNU GCC cross-compilers..."
+          sudo apt-get install -y binutils-aarch64-linux-gnu gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+          echo "GCC_64=CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          echo "GCC_32=CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
+          echo "::endgroup::"
+
+        # 2. Proton Clang auto-prefix
+        elif [[ "${{ env.CLANG_SOURCE }}" == *proton* ]]; then
+          echo "GCC_64=CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
+          echo "GCC_32=CROSS_COMPILE_ARM32=arm-linux-gnueabi-" >> $GITHUB_ENV
+
+        # 3. Custom GCC 64 & 32
+        elif [ -n "${{ env.GCC_64_SOURCE }}" ] && [ -n "${{ env.GCC_32_SOURCE }}" ]; then
+          echo "::group::[+] Downloading custom GCC 64 & 32..."
+          fetch_and_extract "${{ env.GCC_64_SOURCE }}" "${{ env.GCC_64_BRANCH }}" "gcc-64"
+          fetch_and_extract "${{ env.GCC_32_SOURCE }}" "${{ env.GCC_32_BRANCH }}" "gcc-32"
+          
+          if [ -f "/tmp/Bin/found_gcc.sh" ]; then
+            bash /tmp/Bin/found_gcc.sh GCC_64
+            bash /tmp/Bin/found_gcc.sh GCC_32
+          else
+            GCC64_BIN=$(find "$GITHUB_WORKSPACE/gcc-64/bin" -name "*-gcc" -print -quit)
+            GCC32_BIN=$(find "$GITHUB_WORKSPACE/gcc-32/bin" -name "*-gcc" -print -quit)
+            [ -n "$GCC64_BIN" ] && echo "GCC_64=CROSS_COMPILE=$(dirname "$GCC64_BIN")/$(basename "$GCC64_BIN" gcc)" >> $GITHUB_ENV
+            [ -n "$GCC32_BIN" ] && echo "GCC_32=CROSS_COMPILE_ARM32=$(dirname "$GCC32_BIN")/$(basename "$GCC32_BIN" gcc)" >> $GITHUB_ENV
+          fi
+          echo "::endgroup::"
+        fi
+
+        # 4. Clang Toolchain
+        if [ -n "${{ env.CLANG_SOURCE }}" ]; then
+          echo "::group::[+] Acquiring Clang toolchain..."
+          if [[ "${{ env.CLANG_SOURCE }}" == *"antman" ]]; then
+            mkdir -p clang-custom && cd clang-custom
+            ${{ env.CURLX }} "${{ env.CLANG_SOURCE }}" antman
+            chmod +x antman
+            bash antman -S=10032024
+            cd "$GITHUB_WORKSPACE"
+          elif [[ "${{ env.CLANG_SOURCE }}" == *"android.googlesource.com"* ]]; then
+            git clone "${{ env.CLANG_SOURCE }}" -b "${{ env.CLANG_BRANCH }}" clang-custom --depth=1
+            SUBDIR=$(find clang-custom -maxdepth 1 -type d -name 'clang-r*' | head -n 1)
+            [ -n "$SUBDIR" ] && mv "$SUBDIR"/* clang-custom/
+          else
+            fetch_and_extract "${{ env.CLANG_SOURCE }}" "${{ env.CLANG_BRANCH }}" "clang-custom"
+          fi
+          echo "::endgroup::"
+          echo "[+] Clang toolchain configured."
+        fi
+
+    - name: 📦 Checkout Kernel Source & Packaging Tools
+      shell: bash
+      run: |
+        cd "$GITHUB_WORKSPACE"
+
+        # 1. Clone Kernel Source
+        echo "::group::[+] Cloning kernel source code..."
+        git clone --recursive "${{ env.KERNEL_SOURCE }}" -b "${{ env.KERNEL_BRANCH }}" device_kernel --depth=1
+        if [ -f "device_kernel/.gitmodules" ]; then
+          cd device_kernel && git submodule update --init --depth=1 && cd ../
+        fi
+        echo "::endgroup::"
+
+        # Extract kernel version & architecture
+        KERNEL_VERSION=$(head -n 3 device_kernel/Makefile | grep -E 'VERSION|PATCHLEVEL' | awk '{print $3}' | paste -sd '.')
+        echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
+        echo "FIRST_VERSION=$(echo "$KERNEL_VERSION" | awk -F '.' '{print $1}')" >> $GITHUB_ENV
+        echo "SECOND_VERSION=$(echo "$KERNEL_VERSION" | awk -F '.' '{print $2}')" >> $GITHUB_ENV
+
+        if [ -d "device_kernel/arch/arm64/configs" ]; then
+          echo "KERNEL_ARCH=arm64" >> $GITHUB_ENV
+        elif [ -d "device_kernel/arch/arm/configs" ]; then
+          echo "KERNEL_ARCH=arm" >> $GITHUB_ENV
+        else
+          echo "[-] Could not determine kernel architecture!"
+          false
+        fi
+
+        # 2. Acquire Packaging Tools
+        if [ "${{ env.PACK_METHOD }}" == "AnyKernel3" ]; then
+          cd "$GITHUB_WORKSPACE/device_kernel"
+          if [ -n "${{ env.AK3_CUSTOM_REPO }}" ]; then
+            git clone "${{ env.AK3_CUSTOM_REPO }}" -b "${{ env.AK3_BRANCH }}" AnyKernel3 --depth=1
+          elif [[ "${{ env.AK3_SOURCE }}" == *"osm0sis/AnyKernel3.git" ]]; then
+            git clone "${{ env.AK3_SOURCE }}" -b "${{ env.AK3_BRANCH }}" AnyKernel3
+            cd AnyKernel3 && git checkout dca9dc370838d919d56c1f59ec78b27a14a72c68 && cd ../
+          else
+            git clone "${{ env.AK3_SOURCE }}" -b "${{ env.AK3_BRANCH }}" AnyKernel3 --depth=1
+          fi
+          cd "$GITHUB_WORKSPACE"
+
+        elif [ "${{ env.PACK_METHOD }}" == "MKBOOTIMG" ] || [ "${{ env.DEFCONFIG_FROM_BOOT }}" == "true" ]; then
+          git clone https://android.googlesource.com/platform/system/tools/mkbootimg "$GITHUB_WORKSPACE/mkboottools" -b main-kernel-build-2024 --depth=1
+          if [ -n "${{ env.BOOT_SOURCE }}" ]; then
+            if [ -f "$GITHUB_WORKSPACE/${{ env.BOOT_SOURCE }}" ]; then
+              cp -fp "$GITHUB_WORKSPACE/${{ env.BOOT_SOURCE }}" "$GITHUB_WORKSPACE/boot_source_${{ env.DEVICE_NAME }}.img"
+            else
+              ${{ env.CURLX }} "${{ env.BOOT_SOURCE }}" "$GITHUB_WORKSPACE/boot_source_${{ env.DEVICE_NAME }}.img"
+            fi
+          fi
+        fi
+
+        # 3. Defconfig Download / Extraction
+        if [ -n "${{ env.DEFCONFIG_SOURCE }}" ]; then
+          ${{ env.CURLX }} "${{ env.DEFCONFIG_SOURCE }}" "device_kernel/arch/$KERNEL_ARCH/configs/${{ env.DEFCONFIG_NAME }}"
+        elif [ "${{ env.DEFCONFIG_FROM_BOOT }}" == "true" ]; then
+          python3 "$GITHUB_WORKSPACE/mkboottools/unpack_bootimg.py" --boot_img "$GITHUB_WORKSPACE/boot_source_${{ env.DEVICE_NAME }}.img"
+          mv "$GITHUB_WORKSPACE/out/kernel" "$GITHUB_WORKSPACE/device_kernel/Image"
+          "$GITHUB_WORKSPACE/device_kernel/scripts/extract-ikconfig" "$GITHUB_WORKSPACE/device_kernel/Image" > "$GITHUB_WORKSPACE/device_kernel/arch/$KERNEL_ARCH/configs/${{ env.DEFCONFIG_NAME }}"
+        fi
+
+    - name: ⚙️ Setup KernelSU & Defconfig Features
+      shell: bash
+      run: |
+        cd "$GITHUB_WORKSPACE/device_kernel"
+
+        # 1. Clean previous hooks if helper exists
+        if [ -f "/tmp/Bin/clean_hook.sh" ]; then
+          bash /tmp/Bin/clean_hook.sh 2>/dev/null || true
+        fi
+
+        # 2. KernelSU Integration
+        if [ "${{ env.KERNELSU_AUTO_GET }}" == "true" ]; then
+          case "${{ env.KERNELSU_AUTO_FORK }}" in
+            xxksu)    AUTHOR="backslashxx"; NAME="KernelSU"; ORIGIN_BRANCH="master"; BRANCH="master" ;;
+            rsuntk)   AUTHOR="rsuntk"; NAME="KernelSU"; ORIGIN_BRANCH="main"; BRANCH="main" ;;
+            sukisu)   AUTHOR="SukiSU-Ultra"; NAME="SukiSU-Ultra"; ORIGIN_BRANCH="main"; BRANCH="builtin" ;;
+            next)     AUTHOR="KernelSU-Next"; NAME="KernelSU-Next"; ORIGIN_BRANCH="legacy"; BRANCH="legacy" ;;
+            resukisu) AUTHOR="ReSukiSU"; NAME="ReSukiSU"; ORIGIN_BRANCH="main"; BRANCH="main" ;;
+            *)        AUTHOR="ReSukiSU"; NAME="ReSukiSU"; ORIGIN_BRANCH="main"; BRANCH="main" ;;
+          esac
+
+          if [ "${{ env.KERNELSU_METHOD }}" == "manual" ] || [ "${{ env.KERNELSU_METHOD }}" == "only" ]; then
+            git clone "https://github.com/$AUTHOR/$NAME.git" -b "$BRANCH" "drivers/kernelsu" --depth=1
+            if [ "${{ env.KERNELSU_METHOD }}" == "manual" ]; then
+              grep -q "kernelsu" drivers/Makefile || printf "\nobj-\$(CONFIG_KSU) += kernelsu/\n" >> drivers/Makefile
+              grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i "/endmenu/i\source \"drivers/kernelsu/Kconfig\"" drivers/Kconfig
+            fi
+          else
+            curl -sSL "https://raw.githubusercontent.com/$AUTHOR/$NAME/refs/heads/$ORIGIN_BRANCH/kernel/setup.sh" | bash -s "$BRANCH"
+          fi
+        elif [ -n "${{ env.KERNELSU_SOURCE }}" ]; then
+          if [ "${{ env.KERNELSU_METHOD }}" == "manual" ] || [ "${{ env.KERNELSU_METHOD }}" == "only" ]; then
+            git clone "${{ env.KERNELSU_SOURCE }}" -b "${{ env.KERNELSU_BRANCH }}" "drivers/kernelsu" --depth=1
+            if [ "${{ env.KERNELSU_METHOD }}" == "manual" ]; then
+              grep -q "kernelsu" drivers/Makefile || printf "\nobj-\$(CONFIG_KSU) += kernelsu/\n" >> drivers/Makefile
+              grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig || sed -i "/endmenu/i\source \"drivers/kernelsu/Kconfig\"" drivers/Kconfig
+            fi
+          else
+            curl -sSL "${{ env.KERNELSU_SOURCE }}" | bash -s "${{ env.KERNELSU_BRANCH }}"
+          fi
+        fi
+
+        # 3. SukiSU-Ultra Mitigation Patch
+        if [[ "${{ env.KERNELSU_SOURCE }}" == *SukiSU* ]] || [ "${{ env.KERNELSU_AUTO_FORK }}" == "sukisu" ]; then
+          if [ -f "/tmp/Patches/Patch/sukisu_ultra_fixed.patch" ]; then
+            cd drivers/kernelsu
+            patch -p1 < /tmp/Patches/Patch/sukisu_ultra_fixed.patch || true
+            cd ../..
+          fi
+        fi
+
+        # 4. KPM Function Support
+        if [ "${{ env.KPM_ENABLE }}" == "true" ]; then
+          sed -n '/^config KALLSYMS_ALL/,/^[^ \t]/p' init/Kconfig | grep -q 'depends on.*DEBUG_KERNEL' && echo "CONFIG_DEBUG_KERNEL=y" >> "./arch/$KERNEL_ARCH/configs/${{ env.DEFCONFIG_NAME }}"
+          echo "CONFIG_KALLSYMS=y" >> "./arch/$KERNEL_ARCH/configs/${{ env.DEFCONFIG_NAME }}"
+          echo "CONFIG_KALLSYMS_ALL=y" >> "./arch/$KERNEL_ARCH/configs/${{ env.DEFCONFIG_NAME }}"
+
+          if [ "${{ env.KPM_KPATCH_NEXT }}" == "true" ]; then
+            ${{ env.CURLX }} "https://github.com/KernelSU-Next/KPatch-Next/releases/latest/download/kpimg-linux" kpimg-linux
+            ${{ env.CURLX }} "https://github.com/KernelSU-Next/KPatch-Next/releases/latest/download/kptools-linux" kptools-linux
+            chmod a+x kpimg-linux kptools-linux 2>/dev/null || true
+          elif [ -n "${{ env.KPM_PATCH_SOURCE }}" ]; then
+            echo "CONFIG_KPM=y" >> "./arch/$KERNEL_ARCH/configs/${{ env.DEFCONFIG_NAME }}"
+            ${{ env.CURLX }} "${{ env.KPM_PATCH_SOURCE }}" patch
+            chmod a+x patch 2>/dev/null || true
+          fi
+        fi
+
+        # 5. Core KSU & SUSFS Config Flags
+        CONFIG_TARGET="./arch/$KERNEL_ARCH/configs/${{ env.DEFCONFIG_NAME }}"
+        echo "CONFIG_KSU=y" >> "$CONFIG_TARGET"
+
+        if [ "${{ env.SUSFS_ENABLE }}" == "true" ]; then
+          echo "CONFIG_KSU_SUSFS=y" >> "$CONFIG_TARGET"
+        else
+          echo "CONFIG_KSU_SUSFS=n" >> "$CONFIG_TARGET"
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$CONFIG_TARGET"
+        fi
+
+        if [ "${{ env.KERNELSU_AUTO_FORK }}" == "xxksu" ]; then
+          echo "CONFIG_KSU_KPROBES_KSUD=n" >> "$CONFIG_TARGET"
+        fi
+
+        if [ "${{ env.KERNELSU_AUTO_FORK }}" == "next" ]; then
+          if [ "${{ env.FIRST_VERSION }}" -lt 5 ] && [ "${{ env.SECOND_VERSION }}" -lt 10 ]; then
+            echo "CONFIG_KSU_ALLOWLIST_WORKAROUND=y" >> "$CONFIG_TARGET"
+          fi
+        fi
+        echo "[+] KernelSU and defconfig pre-configuration completed."

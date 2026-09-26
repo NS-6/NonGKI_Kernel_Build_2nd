@@ -38,8 +38,8 @@ jobs:
       - build-kernel
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release-kernel == true)
     env:
-      REPO_OWNER: JackA1ltman
-      REPO_NAME: NonGKI_Kernel_Build
+      REPO_OWNER: ${{ github.repository_owner }}
+      REPO_NAME: ${{ github.event.repository.name }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       RELEASE_NAME: "Pre-built"
       RELEASE_NOTES: |
@@ -60,6 +60,7 @@ jobs:
         | Xiaomi Mi MIX 2S | polaris | 4.9 | Evolution X 10.X | 15 | AnyKernel3 | ReSukiSU | ✅ | ✅ | ✅ | ❌ |
         | Xiaomi Mi MIX 2S | polaris | 4.19 | AOSP Based | 16 | AnyKernel3 | ReSukiSU | ✅ | ❌ | ❌ | ❌ |
         | Xiaomi Mi Pad 4 | clover | 4.19 | LineageOS 22 | 15 | AnyKernel3 | ReSukiSU | ✅ | ❌ | ❌ | ❌ |
+        | Xiaomi Poco F3 | alioth | 4.19 | PixelOS | 17 | AnyKernel3 | ReSukiSU | ✅ | ❌ | ✅ | ✅ |
         | Xiaomi Redmi 8 | olive | 4.19 | AOSP Based | 15 | AnyKernel3 | ReSukiSU | ✅ | ✅ | ✅ | ❌ |
         | Xiaomi Redmi K20 Pro | raphael | 4.14 | AOSP Based | 15 | AnyKernel3 | ReSukiSU | ✅ | ❌ | ❌ | ❌ |
         | Xiaomi Redmi K30 Ultra | cezanne | 4.14 | AOSP Based | 14 | AnyKernel3 | ReSukiSU | ✅ | ✅ | ✅ | ❌ |

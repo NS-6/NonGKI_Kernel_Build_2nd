@@ -106,6 +106,14 @@ jobs:
     uses: ./.github/workflows/build-xiaomi-mipad4-lineageos22-a15.yml
     secrets: inherit
 
+  ## Poco
+  build-poco-f3-pos-a17:
+    name: "Poco F3 (PixelOS A17)"
+    strategy:
+      fail-fast: true
+    uses: ./.github/workflows/build-poco-f3-pos-a17.yml
+    secrets: inherit
+
   ## Redmi
   build-redmi-8-aosp-a15-419:
     name: "Xiaomi Redmi 8 (AOSP Based A15) (Kernel 4.19)"

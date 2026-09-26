@@ -1,0 +1,84 @@
+name: Build Poco F3 (PixelOS A17)
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+env:
+  # Device identity
+  DEVICE_NAME: "poco_f3"
+  DEVICE_CODENAME: "alioth"
+
+  # Build commands: pure Clang/LLVM toolchain without GCC cross-compilers
+  CUSTOM_CMDS: "CLANG_TRIPLE=aarch64-linux-gnu-"
+  EXTRA_CMDS: "LD=ld.lld LLVM=1 LLVM_IAS=1"
+
+  # Kernel source
+  KERNEL_SOURCE: "https://github.com/NS-6/android_kernel_xiaomi_sm8250.git"
+  KERNEL_BRANCH: "seventeen"
+
+  # Clang toolchain: POS-A17/LOS-24 uses AOSP Clang 22.0.2 / clang-r596125
+  CLANG_SOURCE: "https://github.com/bachnxuan/aosp_clang_mirror/releases/download/clang-r596125-15682573/clang-r596125.tar.gz"
+
+  # Defconfig with 3-way merge
+  DEFCONFIG_NAME: "vendor/kona-perf_defconfig"
+  BUILD_OTHER_CONFIG: "true"
+  MERGE_CONFIG_FILES: "vendor/xiaomi/sm8250-common.config,vendor/xiaomi/alioth.config"
+
+  # KernelSU: ReSukiSU with SuSFS
+  KERNELSU_AUTO_GET: "true"
+  KERNELSU_AUTO_FORK: "resukisu"
+  KERNELSU_METHOD: "shell"
+
+  # SuSFS & device-specific secondary patch
+  SUSFS_ENABLE: "true"
+  SUSFS_FIXED: "true"
+  PATCHES_SOURCE: "NS-6/NonGKI_Kernel_Build_2nd"
+  PATCHES_BRANCH: "mainline"
+  SUSFS_FOLDER_FIXED: "alioth_pixelos_a17"
+  SUSFS_PATCH_FIXED: "susfs_4.19_fixed"
+
+  # Packaging: AnyKernel3 zip
+  PACK_METHOD: "AnyKernel3"
+  AK3_SOURCE: "https://github.com/osm0sis/AnyKernel3.git"
+  AK3_BRANCH: "master"
+  ROM_TEXT: "pixelos_a17"
+
+  # Kernel Patches
+  NOMOUNT_ENABLE: "true"
+  BASEBAND_GUARD_ENABLE: "true"
+  HOOK_METHOD: "inline"
+
+  # Runner setup
+  PYTHON_VERSION: "3"
+
+jobs:
+  build-kernel:
+    name: Poco F3 (PixelOS A17)
+    runs-on: ubuntu-24.04
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
+
+    steps:
+      - name: ⏰ Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ⚙️ Setup Workspace & Sources
+        uses: ./.github/workflows/setup-workspace
+
+      - name: 🪝 Patch Kernel of SUSFS
+        uses: ./.github/workflows/patch-susfs
+
+      - name: 🔗 Patch for no-kprobe
+        uses: ./.github/workflows/patch-no-kprobe
+
+      - name: 🛡️ Patch Kernel of NoMount
+        uses: ./.github/workflows/patch-nomount
+
+      - name: 🔒 Patch Kernel of Baseband Guard
+        uses: ./.github/workflows/patch-baseband-guard
+
+      - name: 🚀 Build, Pack & Upload
+        uses: ./.github/workflows/build-and-pack
