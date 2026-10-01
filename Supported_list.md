@@ -14,6 +14,7 @@
 | Xiaomi Mi MIX 2S | All | polaris | [4.9/Evolution-X-Devices/sdm845](https://github.com/Evolution-X-Devices/kernel_xiaomi_sdm845) | Evolution X 10.X | 15 | AnyKernel3 | BakaSU | ✅ | Inline | ❌ | ✅ | ✅ | ❌ | Stable |   
 | Xiaomi Mi MIX 2S | All | polaris | [4.19/duckyduckG/sdm845_419](https://github.com/duckyduckG/android_kernel_xiaomi_sdm845_419) | AOSP Based | 16 | AnyKernel3 | BakaSU | ✅ | Inline | ❌ | ❌ | ❌ | ❌ | Stable |  
 | Xiaomi Mi Pad 4 | All | clover | [4.19/pix106/southwest](https://github.com/pix106/android_kernel_xiaomi_southwest-4.19) | LineageOS 22 | 15 | AnyKernel3 | BakaSU | ✅ | Inline | ❌ | ❌ | ❌ | ❌ | Stable |  
+| Xiaomi Poco F3 | All | alioth | [4.19/NS-6/android_kernel_xiaomi_sm8250](https://github.com/NS-6/android_kernel_xiaomi_sm8250) | PixelOS | 17 | AnyKernel3 | BakaSU | ✅ | Inline | ❌ | ❌ | ✅ | ✅ | Stable |  
 | Xiaomi Redmi 8 | All | olive | [4.19/blazey66/sdm439-4.19](https://github.com/blazey66/android_kernel_xiaomi_sdm439-4.19) | AOSP Based | 15 | AnyKernel3 | BakaSU | ✅ | Inline | ❌ | ✅ | ✅ | ❌ | Stable |  
 | Xiaomi Redmi K20 Pro | All | raphael | [4.14/SOVIET-ANDROID/SOVIET-STAR-OSS](https://github.com/SOVIET-ANDROID/kernel_xiaomi_raphael) | AOSP Based | 15 | AnyKernel3 | BakaSU | ✅ | Inline | ❌ | ❌ | ❌ | ❌ | Stable |  
 | Xiaomi Redmi K20 Pro | All | raphael | [4.14/Laulan56/sm8150](https://github.com/Laulan56/android_kernel_xiaomi_sm8150) | MIUI 12.5 | 11 | AnyKernel3 | BakaSU | ✅ | Inline | ❌ | ❌ | ❌ | ❌ | Stable |  

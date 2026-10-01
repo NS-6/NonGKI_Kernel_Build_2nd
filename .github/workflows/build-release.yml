@@ -38,8 +38,8 @@ jobs:
       - build-kernel
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.release-kernel == true)
     env:
-      REPO_OWNER: JackA1ltman
-      REPO_NAME: NonGKI_Kernel_Build
+      REPO_OWNER: ${{ github.repository_owner }}
+      REPO_NAME: ${{ github.event.repository.name || 'NonGKI_Kernel_Build_2nd' }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       RELEASE_NAME: "Pre-built"
       RELEASE_NOTES: |
@@ -61,6 +61,7 @@ jobs:
         | Xiaomi Mi MIX 2S | polaris | 4.9 | Evolution X 10.X | 15 | AnyKernel3 | BakaSU | ✅ | ✅ | ✅ | ❌ |
         | Xiaomi Mi MIX 2S | polaris | 4.19 | AOSP Based | 16 | AnyKernel3 | BakaSU | ✅ | ❌ | ❌ | ❌ |
         | Xiaomi Mi Pad 4 | clover | 4.19 | LineageOS 22 | 15 | AnyKernel3 | BakaSU | ✅ | ❌ | ❌ | ❌ |
+        | Xiaomi Poco F3 | alioth | 4.19 | PixelOS | 17 | AnyKernel3 | BakaSU | ✅ | ❌ | ✅ | ✅ |
         | Xiaomi Redmi 8 | olive | 4.19 | AOSP Based | 15 | AnyKernel3 | BakaSU | ✅ | ✅ | ✅ | ❌ |
         | Xiaomi Redmi K20 Pro | raphael | 4.14 | AOSP Based | 15 | AnyKernel3 | BakaSU | ✅ | ❌ | ❌ | ❌ |
         | Xiaomi Redmi K20 Pro | raphael | 4.14 | MIUI 12.5 | 11 | AnyKernel3 | BakaSU | ✅ | ❌ | ❌ | ❌ |
@@ -88,7 +89,7 @@ jobs:
       - name: Generate and Create New Tag
         run: |
           # Fetch the latest tag from GitHub (this is the latest tag based on the GitHub API)
-          LATEST_TAG=$(gh api repos/$REPO_OWNER/$REPO_NAME/tags --jq '.[0].name')
+          LATEST_TAG=$(gh api repos/${{ github.repository }}/tags --jq '.[0].name')
           if [ -z "$LATEST_TAG" ]; then
             LATEST_TAG="0000000001" # if have no any releases.
           fi
@@ -116,7 +117,7 @@ jobs:
           KSU_SUKISU_ULTRA_VERSION=$(cd KernelSU-SukiSU-Ultra && expr $(/usr/bin/git rev-list --count HEAD) + 40000 - 2815)
           git clone -b legacy https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU-Next
           KSU_NEXT_VERSION=$(cd KernelSU-Next && expr $(/usr/bin/git rev-list --count HEAD) + 30000)
-          git clone -b main https://github.com/BakaSU/BakaSU.git KernelSU-BakaSU
+          git clone -b main https://github.com/Baka-SU/BakaSU.git KernelSU-BakaSU
           KSU_RESUKISU_VERSION=$(cd KernelSU-BakaSU && expr $(/usr/bin/git rev-list --count HEAD) + 30000 + 700)
 
           # Input release note
@@ -126,7 +127,7 @@ jobs:
           echo "[KernelSU-rsuntk](https://github.com/rsuntk/KernelSU) Version: $KSU_RSUNTK_VERSION  " >> $GITHUB_ENV
           echo "[KernelSU-SukiSU-Ultra](https://github.com/ShirkNeko/SukiSU-Ultra) Version: $KSU_SUKISU_ULTRA_VERSION  " >> $GITHUB_ENV
           echo "[KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next) Version: $KSU_NEXT_VERSION  " >> $GITHUB_ENV
-          echo "[KernelSU-BakaSU](https://github.com/BakaSU/BakaSU) Version: $KSU_RESUKISU_VERSION  " >> $GITHUB_ENV
+          echo "[KernelSU-BakaSU](https://github.com/Baka-SU/BakaSU) Version: $KSU_RESUKISU_VERSION  " >> $GITHUB_ENV
           echo "[KernelSU-BakaSU-CI](https://github.com/cctv18/BakaSU_CI) Version: $KSU_RESUKISU_VERSION  " >> $GITHUB_ENV
           echo "EOF" >> $GITHUB_ENV
 
